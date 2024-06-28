@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        #chat {
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #ccc;
+            padding: 10px;
+            display: none;
+        }
+
+        #message {
+            width: calc(100% - 22px);
+            padding: 10px;
+            display: none;
+        }
+
+        #send,
+        #leave {
+            padding: 10px;
+            display: none;
+        }
+
+        #username,
+        #room,
+        #password {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .my-message {
+            text-align: right;
+            color: blue;
+        }
+
+        .other-message {
+            text-align: left;
+            color: green;
+        }
+
+        #create-room,
+        #join-room,
+        #show-rooms {
+            padding: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <input type="text" id="username" placeholder="Enter your name">
+    <input type="text" id="room" placeholder="Enter room name">
+    <input type="password" id="password" placeholder="Enter password (optional)">
+    <button id="create-room">Create Room</button>
+    <button id="join-room">Join Room</button>
+    <button id="show-rooms">Show Public Rooms</button>
+    <button id="leave" onclick="leaveRoom()">Leave Room</button>
+    <div id="public-rooms"></div>
+    <div id="chat"></div>
+    <input type="text" id="message" placeholder="Type your message here...">
+    <button id="send">Send</button>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+        var socket = io();
+        var username = '';
+        var room = '';
+
+        document.getElementById('create-room').onclick = function () {
+            room = document.getElementById('room').value;
+            var password = document.getElementById('password').value;
+            fetch('/create_room', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `room=${room}&password=${password}`
+            }).then(response => {
+                if (response.status === 200) {
+                    joinRoom();
+                } else {
+                    alert('Room already exists');
+                }
+            });
+        };
+
+        document.getElementById('join-room').onclick = function () {
+            room = document.getElementById('room').value;
+            var password = document.getElementById('password').value;
+            var username = document.getElementById('username').value;  // Added to get username from input field
+            fetch('/join_room', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: `room=${room}&password=${password}&username=${username}`  // Include username in the request body
+            }).then(response => {
+                if (response.status === 200) {
+                    joinRoom();
+                } else {
+                    response.text().then(text => alert(text));
+                }
+            });
+        };
+
+
+        document.getElementById('show-rooms').onclick = function () {
+            var username = document.getElementById('username').value;
+            fetch(`/get_rooms?username=${username}`)
+                .then(response => {
+                    if (response.status === 200) {
+                        return response.json();
+                    } else {
+                        throw new Error('Username is already in use in a public room');
+                    }
+                })
+                .then(rooms => {
+                    var publicRooms = document.getElementById('public-rooms');
+                    publicRooms.innerHTML = '<h3>Public Rooms:</h3>';
+                    rooms.forEach(roomName => {
+                        var roomButton = document.createElement('button');
+                        roomButton.textContent = roomName;
+                        roomButton.onclick = function () {
+                            room = roomName;
+                            joinRoom();
+                        };
+                        publicRooms.appendChild(roomButton);
+                    });
+                })
+                .catch(error => {
+                    alert(error.message);
+                });
+        };
+
+
+
+        function joinRoom() {
+            username = document.getElementById('username').value;
+            document.getElementById('username').style.display = 'none';
+            document.getElementById('room').style.display = 'none';
+            document.getElementById('password').style.display = 'none';
+            document.getElementById('create-room').style.display = 'none';
+            document.getElementById('join-room').style.display = 'none';
+            document.getElementById('show-rooms').style.display = 'none';
+            document.getElementById('message').style.display = 'block';
+            document.getElementById('send').style.display = 'block';
+            document.getElementById('leave').style.display = 'block';
+            document.getElementById('chat').style.display = 'block';
+            socket.emit('join', { username: username, room: room });
+        }
+
+        function leaveRoom() {
+            socket.emit('leave', { username: username, room: room });
+            document.getElementById('username').style.display = 'block';
+            document.getElementById('room').style.display = 'block';
+            document.getElementById('password').style.display = 'block';
+            document.getElementById('create-room').style.display = 'block';
+            document.getElementById('join-room').style.display = 'block';
+            document.getElementById('show-rooms').style.display = 'block';
+            document.getElementById('message').style.display = 'none';
+            document.getElementById('send').style.display = 'none';
+            document.getElementById('leave').style.display = 'none';
+            document.getElementById('chat').style.display = 'none';
+            document.getElementById('chat').innerHTML = '';
+        }
+
+        socket.on('message', function (msg) {
+            var chat = document.getElementById('chat');
+            var message = document.createElement('div');
+            var messageData = msg.split(': ');
+            var messageUser = messageData[0];
+            var messageText = messageData.slice(1).join(': ');
+            if (messageUser === username) {
+                message.className = 'my-message';
+            } else {
+                message.className = 'other-message';
+                message.style.color = getRandomColor();
+            }
+            message.textContent = msg;
+            chat.appendChild(message);
+            chat.scrollTop = chat.scrollHeight;
+        });
+
+        document.getElementById('send').onclick = function () {
+            var message = document.getElementById('message').value;
+            socket.send({ username: username, message: message, room: room });
+            document.getElementById('message').value = '';
+        };
+
+        document.getElementById('message').onkeypress = function (e) {
+            if (e.keyCode == 13) {
+                document.getElementById('send').click();
+            }
+        };
+
+        function getRandomColor() {
+            var letters = '0123456789ABCDEF';
+            var color = '#';
+            for (var i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            return color;
+        }
+    </script>
+
+</body>
+
+</html>
